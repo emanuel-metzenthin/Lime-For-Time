@@ -3,6 +3,8 @@ import sklearn
 
 from lime import explanation
 from lime import lime_base
+import math
+
 
 class LimeTimeSeriesExplanation(object):
 	"""Explains time series classifiers."""
@@ -79,29 +81,25 @@ class LimeTimeSeriesExplanation(object):
 		Returns:
 			An Explanation object (see explanation.py) with the corresponding
 			explanations.
-            """
-        
-		domain_mapper = DomainMapper(indexed_string)
-		data, yss, distances = self.__data_labels_distances(
-            timeseries, classifier_fn, num_samples, 50, training_set)
-		if self.class_names is None:
-			self.class_names = [str(x) for x in range(yss[0].shape[0])]
-		ret_exp = explanation.Explanation(domain_mapper=domain_mapper,
-                                          class_names=self.class_names)
-		ret_exp.predict_proba = yss[0]
-		if top_labels:
-			labels = np.argsort(yss[0])[-top_labels:]
-			ret_exp.top_labels = list(labels)
-			ret_exp.top_labels.reverse()
-		for label in labels:
-			(ret_exp.intercept[label],
-			ret_exp.local_exp[label],
-			ret_exp.score) = self.base.explain_instance_with_data(
-                data, yss, distances, label, num_features,
-                model_regressor=model_regressor,
-                feature_selection=self.feature_selection)
-		return ret_exp
-
+       """
+		#domain_mapper = explanation.DomainMapper(indexed_string)
+		#data, yss, distances = self.__data_labels_distances(
+        #    timeseries, classifier_fn, num_samples, 50, training_set)
+		#if self.class_names is None:
+		#	self.class_names = [str(x) for x in range(yss[0].shape[0])]
+		#ret_exp = explanation.Explanation(domain_mapper=domain_mapper,                                          class_names=self.class_names)
+		#ret_exp.predict_proba = yss[0]
+		#if top_labels:
+		#	labels = np.argsort(yss[0])[-top_labels:]
+		#	ret_exp.top_labels = list(labels)
+		#	ret_exp.top_labels.reverse()
+		#for label in labels:
+		#	(ret_exp.intercept[label],
+		#	ret_exp.local_exp[label],
+		#	ret_exp.score) = self.base.explain_instance_with_data(                data, yss, distances, label, num_features,               model_regressor=model_regressor,                feature_selection=self.feature_selection)
+                
+		return self.__data_labels_distances(timeseries, classifier_fn, 10, 26, training_set)
+    
 	@classmethod
 	def __data_labels_distances(cls,
                                 time_series,
@@ -135,26 +133,26 @@ class LimeTimeSeriesExplanation(object):
 
 		def distance_fn(x):
 			return sklearn.metrics.pairwise.pairwise_distances(
-                x, x[0], metric=distance_metric).ravel() * 100
+                x, x[0], metric='cosine').ravel() * 100
 
 		# split time_series into slices
-		values_per_slice = len(time_series) / num_slices
+		values_per_slice = math.ceil(len(time_series) / num_slices)
         
 		# compute randomly how many slices will be switched off
-		sample = np.random.randint(1, num_slices + 1, num_samples - 1)
+		sample = np.random.randint(1, num_slices + 1, num_samples - 1)        
 		data = np.ones((num_samples, num_slices))
 		data[0] = np.ones(num_slices)
 		features_range = range(num_slices)
-		inverse_data = [timeseries]
+		inverse_data = [time_series]
 		for i, size in enumerate(sample, start=1):
-			inactive = np.random.choice(features_range, size, replace=False)
+			inactive = np.random.choice(features_range, size, replace=False)            
 			# set inactive slice to mean of training_set
 			data[i, inactive] = 0
-			inverse_series = timeseries
+			inverse_series = time_series
 			for i, inact in enumerate(inactive):
 				index = inact * values_per_slice
-				inverse_series[index:index+values_per_slice] = np.mean(training_set[index:index + values_per_slice].mean())
+				inverse_series.loc[index:(index+values_per_slice)] = np.mean(training_set.loc[:, index:(index + values_per_slice)].mean())
 			inverse_data.append(inverse_series)
 		labels = classifier_fn(inverse_data)
-		distances = distance_fn(sp.sparse.csr_matrix(data))
-		return data, labels, distances
+		distances = distance_fn(data)
+		return data, labels, inverse_data # todo: return data_ labels. distances

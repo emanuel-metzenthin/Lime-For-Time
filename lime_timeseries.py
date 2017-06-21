@@ -98,7 +98,7 @@ class LimeTimeSeriesExplanation(object):
 		#	ret_exp.local_exp[label],
 		#	ret_exp.score) = self.base.explain_instance_with_data(                data, yss, distances, label, num_features,               model_regressor=model_regressor,                feature_selection=self.feature_selection)
                 
-		return self.__data_labels_distances(timeseries, classifier_fn, 10, 26, training_set)
+		return self.__data_labels_distances(timeseries, classifier_fn, 4, 10, training_set)
     
 	@classmethod
 	def __data_labels_distances(cls,
@@ -139,20 +139,25 @@ class LimeTimeSeriesExplanation(object):
 		values_per_slice = math.ceil(len(time_series) / num_slices)
         
 		# compute randomly how many slices will be switched off
-		sample = np.random.randint(1, num_slices + 1, num_samples - 1)        
+		sample = np.random.randint(1, num_slices + 1, num_samples - 1)
 		data = np.ones((num_samples, num_slices))
-		data[0] = np.ones(num_slices)
 		features_range = range(num_slices)
-		inverse_data = [time_series]
+		inverse_data = [time_series.copy()]
+        
 		for i, size in enumerate(sample, start=1):
-			inactive = np.random.choice(features_range, size, replace=False)            
+			inactive = np.random.choice(features_range, size, replace=False)   
 			# set inactive slice to mean of training_set
 			data[i, inactive] = 0
-			inverse_series = time_series
-			for i, inact in enumerate(inactive):
+			tmp_series = time_series.copy()
+
+			for i, inact in enumerate(inactive, start=1):
 				index = inact * values_per_slice
-				inverse_series.loc[index:(index+values_per_slice)] = np.mean(training_set.loc[:, index:(index + values_per_slice)].mean())
-			inverse_data.append(inverse_series)
+                # use mean as inactive
+				#tmp_series.ix[index:(index+values_per_slice)] = np.mean(training_set.ix[:, index:(index + values_per_slice)].mean())
+                
+                #possibly use random noise as inactive
+				tmp_series.ix[index:(index+values_per_slice)] = np.random.uniform(min(training_set.min()), max(training_set.max()), len(tmp_series.ix[index:(index+values_per_slice)]))
+			inverse_data.append(tmp_series)
 		labels = classifier_fn(inverse_data)
 		distances = distance_fn(data)
 		return data, labels, inverse_data # todo: return data_ labels. distances

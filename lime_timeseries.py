@@ -11,7 +11,7 @@ class LimeTimeSeriesExplanation(object):
 
 	def __init__(self,
                  kernel_width=25,
-                 verbose=False,
+                 verbose=True,
                  class_names=None,
                  feature_selection='auto',
                  split_expression=r'\W+',
@@ -82,23 +82,17 @@ class LimeTimeSeriesExplanation(object):
 			An Explanation object (see explanation.py) with the corresponding
 			explanations.
        """
-		#domain_mapper = explanation.DomainMapper(indexed_string)
-		#data, yss, distances = self.__data_labels_distances(
-        #    timeseries, classifier_fn, num_samples, 50, training_set)
-		#if self.class_names is None:
-		#	self.class_names = [str(x) for x in range(yss[0].shape[0])]
-		#ret_exp = explanation.Explanation(domain_mapper=domain_mapper,                                          class_names=self.class_names)
-		#ret_exp.predict_proba = yss[0]
-		#if top_labels:
-		#	labels = np.argsort(yss[0])[-top_labels:]
-		#	ret_exp.top_labels = list(labels)
-		#	ret_exp.top_labels.reverse()
-		#for label in labels:
-		#	(ret_exp.intercept[label],
-		#	ret_exp.local_exp[label],
-		#	ret_exp.score) = self.base.explain_instance_with_data(                data, yss, distances, label, num_features,               model_regressor=model_regressor,                feature_selection=self.feature_selection)
-                
-		return self.__data_labels_distances(timeseries, classifier_fn, 4, 10, training_set)
+		domain_mapper = explanation.DomainMapper()
+		data, yss, distances = self.__data_labels_distances(timeseries, classifier_fn, 400, 20, training_set)
+		if self.class_names is None:
+			self.class_names = [str(x) for x in range(yss[0].shape[0])]
+		ret_exp = explanation.Explanation(domain_mapper=domain_mapper,                                          class_names=self.class_names)
+		ret_exp.predict_proba = yss[0]
+		for label in labels:
+			(ret_exp.intercept[label],
+			ret_exp.local_exp[label],
+			ret_exp.score) = self.base.explain_instance_with_data(data, yss, distances, label, num_features, feature_selection=self.feature_selection)
+		return ret_exp
     
 	@classmethod
 	def __data_labels_distances(cls,
@@ -155,9 +149,12 @@ class LimeTimeSeriesExplanation(object):
                 # use mean as inactive
 				#tmp_series.ix[index:(index+values_per_slice)] = np.mean(training_set.ix[:, index:(index + values_per_slice)].mean())
                 
-                #possibly use random noise as inactive
+                # use random noise as inactive
 				tmp_series.ix[index:(index+values_per_slice)] = np.random.uniform(min(training_set.min()), max(training_set.max()), len(tmp_series.ix[index:(index+values_per_slice)]))
+                
+                # use total mean as inactive
+				#tmp_series.ix[index:(index+values_per_slice)] = np.mean(training_set.mean())
 			inverse_data.append(tmp_series)
 		labels = classifier_fn(inverse_data)
 		distances = distance_fn(data)
-		return data, labels, inverse_data # todo: return data_ labels. distances
+		return data, labels,  distances

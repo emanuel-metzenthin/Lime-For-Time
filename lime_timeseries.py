@@ -11,11 +11,10 @@ class LimeTimeSeriesExplanation(object):
 
 	def __init__(self,
                  kernel_width=25,
-                 verbose=True,
+                 verbose=False,
                  class_names=None,
                  feature_selection='auto',
-                 split_expression=r'\W+',
-                 bow=True):
+               ):
 		"""Init function.
 		Args:
 			kernel_width: kernel width for the exponential kernel
@@ -25,15 +24,6 @@ class LimeTimeSeriesExplanation(object):
 				'1', ...
 			feature_selection: feature selection method. can be
 				'forward_selection', 'lasso_path', 'none' or 'auto'.
-				See function 'explain_instance_with_data' in lime_base.py for
-				details on what each of the options does.
-			split_expression: strings will be split by this.
-			bow: if True (bag of words), will perturb input data by removing
-				all ocurrences of individual words.  Explanations will be in
-				terms of these words. Otherwise, will explain in terms of
-				word-positions, so that a word may be important the first time
-				it appears and uninportant the second. Only set to false if the
-				classifier uses word order in some way (bigrams, etc).
 		"""
 
 		# exponential kernel
@@ -41,32 +31,25 @@ class LimeTimeSeriesExplanation(object):
 
 		self.base = lime_base.LimeBase(kernel, verbose)
 		self.class_names = class_names
-		self.vocabulary = None
 		self.feature_selection = feature_selection
-		self.bow = bow
-		self.split_expression = split_expression
 
 	def explain_instance(self,
                          timeseries,
                          classifier_fn,
                          training_set,
+                         num_slices,
                          labels=(1,),
                          top_labels=None,
                          num_features=10,
                          num_samples=5000,
                          distance_metric='cosine',
-                         model_regressor=None):
+                         model_regressor=None,
+                        replacement_method='mean'):
 		"""Generates explanations for a prediction.
-		First, we generate neighborhood data by randomly hiding features from
-		the instance (see __data_labels_distance_mapping). We then learn
-		locally weighted linear models on this neighborhood data to explain
-		each of the classes in an interpretable way (see lime_base.py).
 		Args:
 			time_series: Time Series to be explained.
-			classifier_fn: classifier prediction probability function, which
-			takes a list of d strings and outputs a (d, k) numpy array with
-			prediction probabilities, where k is the number of classes.
-			For ScikitClassifiers , this is classifier.predict_proba.
+			classifier_fn: classifier prediction probability function
+			num_slices: Defines into how many slices the series will be split up
 			labels: iterable with labels to be explained.
 			top_labels: if not None, ignore labels and produce explanations for
 			the K labels with highest prediction probabilities, where K is
@@ -82,8 +65,8 @@ class LimeTimeSeriesExplanation(object):
 			An Explanation object (see explanation.py) with the corresponding
 			explanations.
        """
-		domain_mapper = explanation.DomainMapper()
-		data, yss, distances = self.__data_labels_distances(timeseries, classifier_fn, 400, 20, training_set)
+		domain_mapper = explanation.DomainMapper() 
+		data, yss, distances = self.__data_labels_distances(timeseries, classifier_fn, num_samples, num_slices, training_set, replacement_method)
 		if self.class_names is None:
 			self.class_names = [str(x) for x in range(yss[0].shape[0])]
 		ret_exp = explanation.Explanation(domain_mapper=domain_mapper,                                          class_names=self.class_names)
@@ -100,7 +83,8 @@ class LimeTimeSeriesExplanation(object):
                                 classifier_fn,
                                 num_samples,
                                 num_slices,
-                                training_set):
+                                training_set,
+                               replacement_method='mean'):
 		"""Generates a neighborhood around a prediction.
         Generates neighborhood data by randomly removing words from
         the instance, and predicting with the classifier. Uses cosine distance
@@ -113,6 +97,7 @@ class LimeTimeSeriesExplanation(object):
             num_samples: size of the neighborhood to learn the linear model
             num_slices: how many slices the time series will be split into for discretization.
             training_set: set of which the mean will be computed to use as 'inactive' values.
+            replacement_method: Defines how individual slice will be deactivated (can be 'mean', 'total_mean', 'noise')
         Returns:
             A tuple (data, labels, distances), where:
                 data: dense num_samples * K binary matrix, where K is the
@@ -146,14 +131,15 @@ class LimeTimeSeriesExplanation(object):
 
 			for i, inact in enumerate(inactive, start=1):
 				index = inact * values_per_slice
-                # use mean as inactive
-				#tmp_series.ix[index:(index+values_per_slice)] = np.mean(training_set.ix[:, index:(index + values_per_slice)].mean())
-                
-                # use random noise as inactive
-				tmp_series.ix[index:(index+values_per_slice)] = np.random.uniform(min(training_set.min()), max(training_set.max()), len(tmp_series.ix[index:(index+values_per_slice)]))
-                
-                # use total mean as inactive
-				#tmp_series.ix[index:(index+values_per_slice)] = np.mean(training_set.mean())
+				if replacement_method == 'mean':
+					# use mean as inactive
+					tmp_series.ix[index:(index+values_per_slice)] = np.mean(training_set.ix[:, index:(index + values_per_slice)].mean())
+				elif replacement_method == 'noise':
+					# use random noise as inactive
+					tmp_series.ix[index:(index+values_per_slice)] = np.random.uniform(min(training_set.min()), max(training_set.max()), len(tmp_series.ix[index:(index+values_per_slice)]))
+				elif replacement_method == 'total_mean':
+					# use total mean as inactive
+					tmp_series.ix[index:(index+values_per_slice)] = np.mean(training_set.mean())
 			inverse_data.append(tmp_series)
 		labels = classifier_fn(inverse_data)
 		distances = distance_fn(data)

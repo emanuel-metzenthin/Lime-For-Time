@@ -5,7 +5,6 @@ from lime import explanation
 from lime import lime_base
 import math
 
-
 class LimeTimeSeriesExplanation(object):
 	"""Explains time series classifiers."""
 

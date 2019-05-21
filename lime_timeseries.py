@@ -114,7 +114,7 @@ class LimeTimeSeriesExplanation(object):
 
         def distance_fn(x):
             return sklearn.metrics.pairwise.pairwise_distances(
-                x, x[0], metric='cosine').ravel() * 100
+                x, x[0].reshape([1, -1]), metric='cosine').ravel() * 100
 
         # split time_series into slices
         values_per_slice = math.ceil(len(time_series) / num_slices)

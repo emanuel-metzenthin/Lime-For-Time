@@ -77,6 +77,7 @@ class LimeTimeSeriesExplanation(object):
              ret_exp.score, ret_exp.local_pred) = self.base.explain_instance_with_data(data, yss, distances, label,
                                                                                        num_features,
                                                                                        feature_selection=self.feature_selection)
+        ret_exp.local_exp = {k: [(int(j1), float(j2)) for j1, j2 in v] for k, v in ret_exp.local_exp.items()}
         return ret_exp
 
     @classmethod

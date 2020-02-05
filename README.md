@@ -4,6 +4,6 @@ We applied the LIME algorithm (LIME - Local Interpretable Model-Agnostic Explana
 
 ## Results:
 
-![Results on the coffee dataset](/results/coffee/coffee_24_10_noise.JPG)
+![Results on the coffee dataset](/demo/results/coffee/coffee_24_10_noise.JPG)
 
-![Results on the ecg dataset](/results/ecg/ecg_17_5_total_mean.JPG)
+![Results on the ecg dataset](/demo/results/ecg/ecg_17_5_total_mean.JPG)

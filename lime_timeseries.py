@@ -5,7 +5,7 @@ from lime import lime_base
 import math
 
 
-class LimeTimeSeriesExplanation(object):
+class LimeTimeSeriesExplainer(object):
     """Explains time series classifiers."""
 
     def __init__(self,
@@ -33,7 +33,7 @@ class LimeTimeSeriesExplanation(object):
         self.feature_selection = feature_selection
 
     def explain_instance(self,
-                         timeseries,
+                         timeseries_instance,
                          classifier_fn,
                          training_set,
                          num_slices,
@@ -45,10 +45,19 @@ class LimeTimeSeriesExplanation(object):
                          model_regressor=None,
                          replacement_method='mean'):
         """Generates explanations for a prediction.
+
+        First, we generate neighborhood data by randomly hiding features from
+        the instance (see __data_labels_distance_mapping). We then learn
+        locally weighted linear models on this neighborhood data to explain
+        each of the classes in an interpretable way (see lime_base.py).
+
         Args:
-            time_series: Time Series to be explained.
-            classifier_fn: classifier prediction probability function
-            num_slices: Defines into how many slices the series will be split up
+            time_series_instance: time series to be explained.
+            classifier_fn: classifier prediction probability function, which
+                takes a list of d arrays with time series values and outputs a (d, k)
+                numpy array with prediction probabilities, where k is the number of classes.
+                For ScikitClassifiers , this is classifier.predict_proba.
+            num_slices: Defines into how many slices the time series will be split up
             labels: iterable with labels to be explained.
             top_labels: if not None, ignore labels and produce explanations for
             the K labels with highest prediction probabilities, where K is
@@ -64,36 +73,44 @@ class LimeTimeSeriesExplanation(object):
             An Explanation object (see explanation.py) with the corresponding
             explanations.
        """
+
         domain_mapper = explanation.DomainMapper()
-        data, yss, distances = self.__data_labels_distances(timeseries, classifier_fn, num_samples, num_slices,
+        data, yss, distances = self.__data_labels_distances(timeseries_instance, classifier_fn, num_samples, num_slices,
                                                             training_set, replacement_method)
         if self.class_names is None:
             self.class_names = [str(x) for x in range(yss[0].shape[0])]
+
         ret_exp = explanation.Explanation(domain_mapper=domain_mapper, class_names=self.class_names)
         ret_exp.predict_proba = yss[0]
+
+        if top_labels:
+            labels = np.argsort(yss[0])[-top_labels:]
+            ret_exp.top_labels = list(labels)
+            ret_exp.top_labels.reverse()
         for label in labels:
             (ret_exp.intercept[int(label)],
              ret_exp.local_exp[int(label)],
              ret_exp.score, ret_exp.local_pred) = self.base.explain_instance_with_data(data, yss, distances, label,
                                                                                        num_features,
+                                                                                       model_regressor=model_regressor,
                                                                                        feature_selection=self.feature_selection)
-        ret_exp.local_exp = {k: [(int(j1), float(j2)) for j1, j2 in v] for k, v in ret_exp.local_exp.items()}
         return ret_exp
 
-    @classmethod
     def __data_labels_distances(cls,
-                                time_series,
+                                timeseries,
                                 classifier_fn,
                                 num_samples,
                                 num_slices,
                                 training_set,
                                 replacement_method='mean'):
         """Generates a neighborhood around a prediction.
-        Generates neighborhood data by randomly removing words from
-        the instance, and predicting with the classifier. Uses cosine distance
-        to compute distances between original and perturbed instances.
+
+        Generates neighborhood data by randomly removing slices from the time series
+        and replacing these slice with other data points (specified by replacement_method: mean
+        over slice range, mean of entire series or random noise). Then predicts with the classifier.
+
         Args:
-            time_series: Time Series to be explained.
+            timeseries: Time Series to be explained.
             classifier_fn: classifier prediction probability function, which
                 takes a time series and outputs prediction probabilities. For
                 ScikitClassifier, this is classifier.predict_proba.
@@ -104,11 +121,11 @@ class LimeTimeSeriesExplanation(object):
         Returns:
             A tuple (data, labels, distances), where:
                 data: dense num_samples * K binary matrix, where K is the
-                    number of tokens in indexed_string. The first row is the
+                    number of slices in the time series. The first row is the
                     original instance, and thus a row of ones.
                 labels: num_samples * L matrix, where L is the number of target
                     labels
-                distances: cosine distance between the original instance and
+                distances: distance between the original instance and
                     each perturbed instance (computed in the binary 'data'
                     matrix), times 100.
         """
@@ -118,19 +135,18 @@ class LimeTimeSeriesExplanation(object):
                 x, x[0].reshape([1, -1]), metric='cosine').ravel() * 100
 
         # split time_series into slices
-        values_per_slice = math.ceil(len(time_series) / num_slices)
+        values_per_slice = math.ceil(len(timeseries) / num_slices)
 
-        # compute randomly how many slices will be switched off
         sample = np.random.randint(1, num_slices + 1, num_samples - 1)
         data = np.ones((num_samples, num_slices))
         features_range = range(num_slices)
-        inverse_data = [time_series.copy()]
+        inverse_data = [timeseries.copy()]
 
         for i, size in enumerate(sample, start=1):
             inactive = np.random.choice(features_range, size, replace=False)
             # set inactive slice to mean of training_set
             data[i, inactive] = 0
-            tmp_series = time_series.copy()
+            tmp_series = timeseries.copy()
 
             for i, inact in enumerate(inactive, start=1):
                 index = inact * values_per_slice
@@ -149,4 +165,5 @@ class LimeTimeSeriesExplanation(object):
             inverse_data.append(tmp_series)
         labels = classifier_fn(inverse_data)
         distances = distance_fn(data)
+
         return data, labels, distances

@@ -5,7 +5,7 @@ from lime import lime_base
 import math
 
 
-class LimeTimeSeriesExplanation(object):
+class LimeTimeSeriesExplainer(object):
     """Explains time series classifiers."""
 
     def __init__(self,
@@ -33,22 +33,32 @@ class LimeTimeSeriesExplanation(object):
         self.feature_selection = feature_selection
 
     def explain_instance(self,
-                         timeseries,
+                         timeseries_instance,
                          classifier_fn,
-                         training_set,
                          num_slices,
                          labels=(1,),
                          top_labels=None,
                          num_features=10,
                          num_samples=5000,
-                         distance_metric='cosine',
                          model_regressor=None,
                          replacement_method='mean'):
         """Generates explanations for a prediction.
+
+        First, we generate neighborhood data by randomly hiding features from
+        the instance (see __data_labels_distance_mapping). We then learn
+        locally weighted linear models on this neighborhood data to explain
+        each of the classes in an interpretable way (see lime_base.py).
+        As distance function DTW metric is used.
+
         Args:
-            time_series: Time Series to be explained.
-            classifier_fn: classifier prediction probability function
-            num_slices: Defines into how many slices the series will be split up
+            time_series_instance: time series to be explained.
+            classifier_fn: classifier prediction probability function,
+                which takes a list of d arrays with time series values
+                and outputs a (d, k) numpy array with prediction
+                probabilities, where k is the number of classes.
+                For ScikitClassifiers , this is classifier.predict_proba.
+            num_slices: Defines into how many slices the time series will
+                be split up
             labels: iterable with labels to be explained.
             top_labels: if not None, ignore labels and produce explanations for
             the K labels with highest prediction probabilities, where K is
@@ -56,97 +66,117 @@ class LimeTimeSeriesExplanation(object):
             num_features: maximum number of features present in explanation
             num_samples: size of the neighborhood to learn the linear model
             distance_metric: the distance metric to use for sample weighting,
-            defaults to cosine similarity
+                defaults to cosine similarity
             model_regressor: sklearn regressor to use in explanation. Defaults
-            to Ridge regression in LimeBase. Must have model_regressor.coef_
-            and 'sample_weight' as a parameter to model_regressor.fit()
+                to Ridge regression in LimeBase. Must have
+                model_regressor.coef_ and 'sample_weight' as a parameter to
+                model_regressor.fit()
         Returns:
             An Explanation object (see explanation.py) with the corresponding
             explanations.
        """
+
         domain_mapper = explanation.DomainMapper()
-        data, yss, distances = self.__data_labels_distances(timeseries, classifier_fn, num_samples, num_slices,
-                                                            training_set, replacement_method)
+        permutations, predictions, distances = self.__data_labels_distances(
+            timeseries_instance, classifier_fn,
+            num_samples, num_slices, replacement_method)
+
         if self.class_names is None:
-            self.class_names = [str(x) for x in range(yss[0].shape[0])]
-        ret_exp = explanation.Explanation(domain_mapper=domain_mapper, class_names=self.class_names)
-        ret_exp.predict_proba = yss[0]
+            self.class_names = [str(x) for x in range(predictions[0].shape[0])]
+
+        ret_exp = explanation.Explanation(domain_mapper=domain_mapper,
+                                          class_names=self.class_names)
+        ret_exp.predict_proba = predictions[0]
+
+        if top_labels:
+            labels = np.argsort(predictions[0])[-top_labels:]
+            ret_exp.top_labels = list(predictions)
+            ret_exp.top_labels.reverse()
         for label in labels:
             (ret_exp.intercept[int(label)],
              ret_exp.local_exp[int(label)],
-             ret_exp.score, ret_exp.local_pred) = self.base.explain_instance_with_data(data, yss, distances, label,
-                                                                                       num_features,
-                                                                                       feature_selection=self.feature_selection)
-        ret_exp.local_exp = {k: [(int(j1), float(j2)) for j1, j2 in v] for k, v in ret_exp.local_exp.items()}
+             ret_exp.score,
+             ret_exp.local_pred) = self.base.explain_instance_with_data(
+                permutations, predictions,
+                distances, label,
+                num_features,
+                model_regressor=model_regressor,
+                feature_selection=self.feature_selection)
         return ret_exp
 
-    @classmethod
     def __data_labels_distances(cls,
-                                time_series,
+                                timeseries,
                                 classifier_fn,
                                 num_samples,
                                 num_slices,
-                                training_set,
                                 replacement_method='mean'):
         """Generates a neighborhood around a prediction.
-        Generates neighborhood data by randomly removing words from
-        the instance, and predicting with the classifier. Uses cosine distance
-        to compute distances between original and perturbed instances.
+
+        Generates neighborhood data by randomly removing slices from the
+        time series and replacing them with other data points (specified by
+        replacement_method: mean over slice range, mean of entire series or
+        random noise). Then predicts with the classifier.
+
         Args:
-            time_series: Time Series to be explained.
+            timeseries: Time Series to be explained.
             classifier_fn: classifier prediction probability function, which
                 takes a time series and outputs prediction probabilities. For
                 ScikitClassifier, this is classifier.predict_proba.
-            num_samples: size of the neighborhood to learn the linear model
-            num_slices: how many slices the time series will be split into for discretization.
-            training_set: set of which the mean will be computed to use as 'inactive' values.
-            replacement_method: Defines how individual slice will be deactivated (can be 'mean', 'total_mean', 'noise')
+            num_samples: size of the neighborhood to learn the linear
+                model (perturbation + original time series)
+            num_slices: how many slices the time series will be split into
+                for discretization.
+            replacement_method:  Defines how individual slice will be
+                deactivated (can be 'mean', 'total_mean', 'noise')
         Returns:
             A tuple (data, labels, distances), where:
                 data: dense num_samples * K binary matrix, where K is the
-                    number of tokens in indexed_string. The first row is the
+                    number of slices in the time series. The first row is the
                     original instance, and thus a row of ones.
                 labels: num_samples * L matrix, where L is the number of target
                     labels
-                distances: cosine distance between the original instance and
-                    each perturbed instance (computed in the binary 'data'
-                    matrix), times 100.
+                distances: distance between the original instance and
+                    each perturbed instance
         """
 
         def distance_fn(x):
             return sklearn.metrics.pairwise.pairwise_distances(
                 x, x[0].reshape([1, -1]), metric='cosine').ravel() * 100
 
-        # split time_series into slices
-        values_per_slice = math.ceil(len(time_series) / num_slices)
-
-        # compute randomly how many slices will be switched off
-        sample = np.random.randint(1, num_slices + 1, num_samples - 1)
-        data = np.ones((num_samples, num_slices))
+        values_per_slice = math.ceil(len(timeseries) / num_slices)
+        deact_per_slice = np.random.randint(1, num_slices + 1, num_samples - 1)
+        perturbation_matrix = np.ones((num_samples, num_slices))
         features_range = range(num_slices)
-        inverse_data = [time_series.copy()]
+        original_data = [timeseries.copy()]
 
-        for i, size in enumerate(sample, start=1):
-            inactive = np.random.choice(features_range, size, replace=False)
-            # set inactive slice to mean of training_set
-            data[i, inactive] = 0
-            tmp_series = time_series.copy()
+        for i, num_inactive in enumerate(deact_per_slice, start=1):
+            # choose random slices indexes to deactivate
+            inactive_idxs = np.random.choice(features_range, num_inactive,
+                                             replace=False)
+            perturbation_matrix[i, inactive_idxs] = 0
+            tmp_series = timeseries.copy()
 
-            for i, inact in enumerate(inactive, start=1):
-                index = inact * values_per_slice
+            for idx in inactive_idxs:
+                start_idx = idx * values_per_slice
+                end_idx = start_idx + values_per_slice
+                end_idx = min(end_idx, len(timeseries))
+
                 if replacement_method == 'mean':
-                    # use mean as inactive
-                    tmp_series.iloc[index:(index + values_per_slice)] = np.mean(
-                        training_set.iloc[:, index:(index + values_per_slice)].mean())
+                    # use mean of slice as inactive
+                    tmp_series[start_idx:end_idx] = np.mean(
+                        tmp_series[start_idx:end_idx])
                 elif replacement_method == 'noise':
                     # use random noise as inactive
-                    tmp_series.iloc[index:(index + values_per_slice)] = np.random.uniform(min(training_set.min()),
-                                                                                        max(training_set.max()), len(
-                            tmp_series.iloc[index:(index + values_per_slice)]))
+                    tmp_series[start_idx:end_idx] = np.random.uniform(
+                        tmp_series.min(),
+                        tmp_series.max(),
+                        end_idx - start_idx)
                 elif replacement_method == 'total_mean':
-                    # use total mean as inactive
-                    tmp_series.iloc[index:(index + values_per_slice)] = np.mean(training_set.mean())
-            inverse_data.append(tmp_series)
-        labels = classifier_fn(inverse_data)
-        distances = distance_fn(data)
-        return data, labels, distances
+                    # use total series mean as inactive
+                    tmp_series[start_idx:end_idx] = tmp_series.mean()
+            original_data.append(tmp_series)
+
+        predictions = classifier_fn(original_data)
+        distances = distance_fn(perturbation_matrix)
+
+        return perturbation_matrix, predictions, distances

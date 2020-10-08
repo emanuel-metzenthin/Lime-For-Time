@@ -8,6 +8,6 @@ A given example instance is perturbed (i.e. parts of its features are 'switched 
 
 The LIME package only supports image, text and tabular data. We extended it to be able to deal with time series data.
 
-![Results on the coffee dataset](/demo/results/coffee/coffee_24_10_noise.JPG)
+## Demo
 
-![Results on the ecg dataset](/demo/results/ecg/ecg_17_5_total_mean.JPG)
+See the demo [notebook](demo/LIME-Pipeline.ipynb) for how to use the module.

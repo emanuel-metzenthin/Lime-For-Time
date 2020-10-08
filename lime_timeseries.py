@@ -132,17 +132,19 @@ class LimeTimeSeriesExplainer(object):
         values_per_slice = math.ceil(len(timeseries) / num_slices)
         deact_per_slice = np.random.randint(1, num_slices + 1, num_samples - 1)
         perturbation_matrix = np.ones((num_samples, num_slices))
+        features_range = range(num_slices)
         original_data = [timeseries.copy()]
 
         for i, num_inactive in enumerate(deact_per_slice, start=1):
             # choose random slices indexes to deactivate
-            inactive_idxs = np.random.choice(len(num_slices), num_inactive, replace=False)
+            inactive_idxs = np.random.choice(features_range, num_inactive, replace=False)
             perturbation_matrix[i, inactive_idxs] = 0
             tmp_series = timeseries.copy()
 
             for idx in inactive_idxs:
                 start_idx = idx * values_per_slice
                 end_idx = start_idx + values_per_slice
+                end_idx = min(end_idx, len(timeseries))
 
                 if replacement_method == 'mean':
                     # use mean of slice as inactive
@@ -152,7 +154,7 @@ class LimeTimeSeriesExplainer(object):
                     tmp_series[start_idx:end_idx] = np.random.uniform(
                                                         tmp_series.min(),
                                                         tmp_series.max(),
-                                                        values_per_slice)
+                                                        end_idx - start_idx)
                 elif replacement_method == 'total_mean':
                     # use total series mean as inactive
                     tmp_series[start_idx:end_idx] = tmp_series.mean()

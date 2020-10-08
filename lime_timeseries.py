@@ -4,6 +4,65 @@ from lime import explanation
 from lime import lime_base
 import math
 
+class TimeSeriesDomainMapper(explanation.DomainMapper):
+    """Maps feature ids to time series slices"""
+
+    def __init__(self, timeseries):
+        """Initializer.
+        Args:
+            timeseries: numpy_array
+        """
+        self.timeseries = timeseries
+
+    def map_exp_ids(self, exp, positions=False):
+        """Maps ids to time series slices
+        Args:
+            exp: list of tuples [(id, weight), (id,weight)]
+            positions: if True, also return slice positions
+        Returns:
+            list of tuples (slice_range, weight)
+            example: [((0, 13), 1), ((13, 25), 0.66)]
+        """
+        # TODO
+        if positions:
+            exp = [('%s_%s' % (
+                self.indexed_string.word(x[0]),
+                '-'.join(
+                    map(str,
+                        self.indexed_string.string_position(x[0])))), x[1])
+                   for x in exp]
+        else:
+            exp = [(self.indexed_string.word(x[0]), x[1]) for x in exp]
+        return exp
+
+    def visualize_instance_html(self, exp, label, div_name, exp_object_name,
+                                text=True, opacity=True):
+        """Adds text with highlighted words to visualization.
+        Args:
+             exp: list of tuples [(id, weight), (id,weight)]
+             label: label id (integer)
+             div_name: name of div object to be used for rendering(in js)
+             exp_object_name: name of js explanation object
+             text: if False, return empty
+             opacity: if True, fade colors according to weight
+        """
+        if not text:
+            return u''
+        text = (self.indexed_string.raw_string()
+                .encode('utf-8', 'xmlcharrefreplace').decode('utf-8'))
+        text = re.sub(r'[<>&]', '|', text)
+        exp = [(self.indexed_string.word(x[0]),
+                self.indexed_string.string_position(x[0]),
+                x[1]) for x in exp]
+        all_occurrences = list(itertools.chain.from_iterable(
+            [itertools.product([x[0]], x[1], [x[2]]) for x in exp]))
+        all_occurrences = [(x[0], int(x[1]), x[2]) for x in all_occurrences]
+        ret = '''
+            %s.show_raw_text(%s, %d, %s, %s, %s);
+            ''' % (exp_object_name, json.dumps(all_occurrences), label,
+                   json.dumps(text), div_name, json.dumps(opacity))
+        return ret
+
 
 class LimeTimeSeriesExplainer(object):
     """Explains time series classifiers."""
@@ -35,7 +94,6 @@ class LimeTimeSeriesExplainer(object):
     def explain_instance(self,
                          timeseries_instance,
                          classifier_fn,
-                         training_set,
                          num_slices,
                          labels=(1,),
                          top_labels=None,
@@ -75,8 +133,7 @@ class LimeTimeSeriesExplainer(object):
        """
 
         domain_mapper = explanation.DomainMapper()
-        data, yss, distances = self.__data_labels_distances(timeseries_instance, classifier_fn, num_samples, num_slices,
-                                                            training_set, replacement_method)
+        data, yss, distances = self.__data_labels_distances(timeseries_instance, classifier_fn, num_samples, num_slices, replacement_method)
         if self.class_names is None:
             self.class_names = [str(x) for x in range(yss[0].shape[0])]
 
@@ -101,7 +158,6 @@ class LimeTimeSeriesExplainer(object):
                                 classifier_fn,
                                 num_samples,
                                 num_slices,
-                                training_set,
                                 replacement_method='mean'):
         """Generates a neighborhood around a prediction.
 
@@ -152,16 +208,15 @@ class LimeTimeSeriesExplainer(object):
                 index = inact * values_per_slice
                 if replacement_method == 'mean':
                     # use mean as inactive
-                    tmp_series.iloc[index:(index + values_per_slice)] = np.mean(
-                        training_set.iloc[:, index:(index + values_per_slice)].mean())
+                    tmp_series.iloc[index:(index + values_per_slice)] = np.mean(tmp_series.iloc[index:(index + values_per_slice)])
                 elif replacement_method == 'noise':
                     # use random noise as inactive
-                    tmp_series.iloc[index:(index + values_per_slice)] = np.random.uniform(min(training_set.min()),
-                                                                                        max(training_set.max()), len(
-                            tmp_series.iloc[index:(index + values_per_slice)]))
+                    tmp_series.iloc[index:(index + values_per_slice)] = np.random.uniform(min(tmp_series.min()),
+                                                                                        max(tmp_series.max()),
+                                                                                        len(tmp_series.iloc[index:(index + values_per_slice)]))
                 elif replacement_method == 'total_mean':
                     # use total mean as inactive
-                    tmp_series.iloc[index:(index + values_per_slice)] = np.mean(training_set.mean())
+                    tmp_series.iloc[index:(index + values_per_slice)] = np.mean(tmp_series.mean())
             inverse_data.append(tmp_series)
         labels = classifier_fn(inverse_data)
         distances = distance_fn(data)

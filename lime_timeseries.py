@@ -4,64 +4,64 @@ from lime import explanation
 from lime import lime_base
 import math
 
-class TimeSeriesDomainMapper(explanation.DomainMapper):
-    """Maps feature ids to time series slices"""
-
-    def __init__(self, timeseries):
-        """Initializer.
-        Args:
-            timeseries: numpy_array
-        """
-        self.timeseries = timeseries
-
-    def map_exp_ids(self, exp, positions=False):
-        """Maps ids to time series slices
-        Args:
-            exp: list of tuples [(id, weight), (id,weight)]
-            positions: if True, also return slice positions
-        Returns:
-            list of tuples (slice_range, weight)
-            example: [((0, 13), 1), ((13, 25), 0.66)]
-        """
-        # TODO
-        if positions:
-            exp = [('%s_%s' % (
-                self.indexed_string.word(x[0]),
-                '-'.join(
-                    map(str,
-                        self.indexed_string.string_position(x[0])))), x[1])
-                   for x in exp]
-        else:
-            exp = [(self.indexed_string.word(x[0]), x[1]) for x in exp]
-        return exp
-
-    def visualize_instance_html(self, exp, label, div_name, exp_object_name,
-                                text=True, opacity=True):
-        """Adds text with highlighted words to visualization.
-        Args:
-             exp: list of tuples [(id, weight), (id,weight)]
-             label: label id (integer)
-             div_name: name of div object to be used for rendering(in js)
-             exp_object_name: name of js explanation object
-             text: if False, return empty
-             opacity: if True, fade colors according to weight
-        """
-        if not text:
-            return u''
-        text = (self.indexed_string.raw_string()
-                .encode('utf-8', 'xmlcharrefreplace').decode('utf-8'))
-        text = re.sub(r'[<>&]', '|', text)
-        exp = [(self.indexed_string.word(x[0]),
-                self.indexed_string.string_position(x[0]),
-                x[1]) for x in exp]
-        all_occurrences = list(itertools.chain.from_iterable(
-            [itertools.product([x[0]], x[1], [x[2]]) for x in exp]))
-        all_occurrences = [(x[0], int(x[1]), x[2]) for x in all_occurrences]
-        ret = '''
-            %s.show_raw_text(%s, %d, %s, %s, %s);
-            ''' % (exp_object_name, json.dumps(all_occurrences), label,
-                   json.dumps(text), div_name, json.dumps(opacity))
-        return ret
+# class TimeSeriesDomainMapper(explanation.DomainMapper):
+#     """Maps feature ids to time series slices"""
+#
+#     def __init__(self, timeseries):
+#         """Initializer.
+#         Args:
+#             timeseries: numpy_array
+#         """
+#         self.timeseries = timeseries
+#
+#     def map_exp_ids(self, exp, positions=False):
+#         """Maps ids to time series slices
+#         Args:
+#             exp: list of tuples [(id, weight), (id,weight)]
+#             positions: if True, also return slice positions
+#         Returns:
+#             list of tuples (slice_range, weight)
+#             example: [((0, 13), 1), ((13, 25), 0.66)]
+#         """
+#         # TODO
+#         if positions:
+#             exp = [('%s_%s' % (
+#                 self.indexed_string.word(x[0]),
+#                 '-'.join(
+#                     map(str,
+#                         self.indexed_string.string_position(x[0])))), x[1])
+#                    for x in exp]
+#         else:
+#             exp = [(self.indexed_string.word(x[0]), x[1]) for x in exp]
+#         return exp
+#
+#     def visualize_instance_html(self, exp, label, div_name, exp_object_name,
+#                                 text=True, opacity=True):
+#         """Adds text with highlighted words to visualization.
+#         Args:
+#              exp: list of tuples [(id, weight), (id,weight)]
+#              label: label id (integer)
+#              div_name: name of div object to be used for rendering(in js)
+#              exp_object_name: name of js explanation object
+#              text: if False, return empty
+#              opacity: if True, fade colors according to weight
+#         """
+#         if not text:
+#             return u''
+#         text = (self.indexed_string.raw_string()
+#                 .encode('utf-8', 'xmlcharrefreplace').decode('utf-8'))
+#         text = re.sub(r'[<>&]', '|', text)
+#         exp = [(self.indexed_string.word(x[0]),
+#                 self.indexed_string.string_position(x[0]),
+#                 x[1]) for x in exp]
+#         all_occurrences = list(itertools.chain.from_iterable(
+#             [itertools.product([x[0]], x[1], [x[2]]) for x in exp]))
+#         all_occurrences = [(x[0], int(x[1]), x[2]) for x in all_occurrences]
+#         ret = '''
+#             %s.show_raw_text(%s, %d, %s, %s, %s);
+#             ''' % (exp_object_name, json.dumps(all_occurrences), label,
+#                    json.dumps(text), div_name, json.dumps(opacity))
+#         return ret
 
 
 class LimeTimeSeriesExplainer(object):
@@ -99,7 +99,6 @@ class LimeTimeSeriesExplainer(object):
                          top_labels=None,
                          num_features=10,
                          num_samples=5000,
-                         distance_metric='cosine',
                          model_regressor=None,
                          replacement_method='mean'):
         """Generates explanations for a prediction.
@@ -108,6 +107,7 @@ class LimeTimeSeriesExplainer(object):
         the instance (see __data_labels_distance_mapping). We then learn
         locally weighted linear models on this neighborhood data to explain
         each of the classes in an interpretable way (see lime_base.py).
+        As distance function DTW metric is used.
 
         Args:
             time_series_instance: time series to be explained.
@@ -133,21 +133,22 @@ class LimeTimeSeriesExplainer(object):
        """
 
         domain_mapper = explanation.DomainMapper()
-        data, yss, distances = self.__data_labels_distances(timeseries_instance, classifier_fn, num_samples, num_slices, replacement_method)
+        permutations, predictions, distances = self.__data_labels_distances(timeseries_instance, classifier_fn, num_samples, num_slices, replacement_method)
+
         if self.class_names is None:
-            self.class_names = [str(x) for x in range(yss[0].shape[0])]
+            self.class_names = [str(x) for x in range(predictions[0].shape[0])]
 
         ret_exp = explanation.Explanation(domain_mapper=domain_mapper, class_names=self.class_names)
-        ret_exp.predict_proba = yss[0]
+        ret_exp.predict_proba = predictions[0]
 
         if top_labels:
-            labels = np.argsort(yss[0])[-top_labels:]
-            ret_exp.top_labels = list(labels)
+            labels = np.argsort(predictions[0])[-top_labels:]
+            ret_exp.top_labels = list(predictions)
             ret_exp.top_labels.reverse()
         for label in labels:
             (ret_exp.intercept[int(label)],
              ret_exp.local_exp[int(label)],
-             ret_exp.score, ret_exp.local_pred) = self.base.explain_instance_with_data(data, yss, distances, label,
+             ret_exp.score, ret_exp.local_pred) = self.base.explain_instance_with_data(permutations, predictions, distances, label,
                                                                                        num_features,
                                                                                        model_regressor=model_regressor,
                                                                                        feature_selection=self.feature_selection)
@@ -162,7 +163,7 @@ class LimeTimeSeriesExplainer(object):
         """Generates a neighborhood around a prediction.
 
         Generates neighborhood data by randomly removing slices from the time series
-        and replacing these slice with other data points (specified by replacement_method: mean
+        and replacing them with other data points (specified by replacement_method: mean
         over slice range, mean of entire series or random noise). Then predicts with the classifier.
 
         Args:
@@ -170,9 +171,8 @@ class LimeTimeSeriesExplainer(object):
             classifier_fn: classifier prediction probability function, which
                 takes a time series and outputs prediction probabilities. For
                 ScikitClassifier, this is classifier.predict_proba.
-            num_samples: size of the neighborhood to learn the linear model
+            num_samples: size of the neighborhood to learn the linear model (perturbation + original time series)
             num_slices: how many slices the time series will be split into for discretization.
-            training_set: set of which the mean will be computed to use as 'inactive' values.
             replacement_method: Defines how individual slice will be deactivated (can be 'mean', 'total_mean', 'noise')
         Returns:
             A tuple (data, labels, distances), where:
@@ -182,43 +182,43 @@ class LimeTimeSeriesExplainer(object):
                 labels: num_samples * L matrix, where L is the number of target
                     labels
                 distances: distance between the original instance and
-                    each perturbed instance (computed in the binary 'data'
-                    matrix), times 100.
+                    each perturbed instance
         """
 
         def distance_fn(x):
             return sklearn.metrics.pairwise.pairwise_distances(
                 x, x[0].reshape([1, -1]), metric='cosine').ravel() * 100
 
-        # split time_series into slices
         values_per_slice = math.ceil(len(timeseries) / num_slices)
+        deact_per_slice = np.random.randint(1, num_slices + 1, num_samples - 1)
+        perturbation_matrix = np.ones((num_samples, num_slices))
+        original_data = [timeseries.copy()]
 
-        sample = np.random.randint(1, num_slices + 1, num_samples - 1)
-        data = np.ones((num_samples, num_slices))
-        features_range = range(num_slices)
-        inverse_data = [timeseries.copy()]
-
-        for i, size in enumerate(sample, start=1):
-            inactive = np.random.choice(features_range, size, replace=False)
-            # set inactive slice to mean of training_set
-            data[i, inactive] = 0
+        for i, num_inactive in enumerate(deact_per_slice, start=1):
+            # choose random slices indexes to deactivate
+            inactive_idxs = np.random.choice(len(num_slices), num_inactive, replace=False)
+            perturbation_matrix[i, inactive_idxs] = 0
             tmp_series = timeseries.copy()
 
-            for i, inact in enumerate(inactive, start=1):
-                index = inact * values_per_slice
+            for idx in inactive_idxs:
+                start_idx = idx * values_per_slice
+                end_idx = start_idx + values_per_slice
+
                 if replacement_method == 'mean':
-                    # use mean as inactive
-                    tmp_series.iloc[index:(index + values_per_slice)] = np.mean(tmp_series.iloc[index:(index + values_per_slice)])
+                    # use mean of slice as inactive
+                    tmp_series[start_idx:end_idx] = np.mean(tmp_series[start_idx:end_idx])
                 elif replacement_method == 'noise':
                     # use random noise as inactive
-                    tmp_series.iloc[index:(index + values_per_slice)] = np.random.uniform(min(tmp_series.min()),
-                                                                                        max(tmp_series.max()),
-                                                                                        len(tmp_series.iloc[index:(index + values_per_slice)]))
+                    tmp_series[start_idx:end_idx] = np.random.uniform(
+                                                        tmp_series.min(),
+                                                        tmp_series.max(),
+                                                        values_per_slice)
                 elif replacement_method == 'total_mean':
-                    # use total mean as inactive
-                    tmp_series.iloc[index:(index + values_per_slice)] = np.mean(tmp_series.mean())
-            inverse_data.append(tmp_series)
-        labels = classifier_fn(inverse_data)
-        distances = distance_fn(data)
+                    # use total series mean as inactive
+                    tmp_series[start_idx:end_idx] = tmp_series.mean()
+            original_data.append(tmp_series)
 
-        return data, labels, distances
+        predictions = classifier_fn(original_data)
+        distances = distance_fn(perturbation_matrix)
+
+        return perturbation_matrix, predictions, distances

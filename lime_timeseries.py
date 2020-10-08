@@ -4,6 +4,7 @@ from lime import explanation
 from lime import lime_base
 import math
 
+
 class LimeTimeSeriesExplainer(object):
     """Explains time series classifiers."""
 
@@ -51,11 +52,13 @@ class LimeTimeSeriesExplainer(object):
 
         Args:
             time_series_instance: time series to be explained.
-            classifier_fn: classifier prediction probability function, which
-                takes a list of d arrays with time series values and outputs a (d, k)
-                numpy array with prediction probabilities, where k is the number of classes.
+            classifier_fn: classifier prediction probability function,
+                which takes a list of d arrays with time series values
+                and outputs a (d, k) numpy array with prediction
+                probabilities, where k is the number of classes.
                 For ScikitClassifiers , this is classifier.predict_proba.
-            num_slices: Defines into how many slices the time series will be split up
+            num_slices: Defines into how many slices the time series will
+                be split up
             labels: iterable with labels to be explained.
             top_labels: if not None, ignore labels and produce explanations for
             the K labels with highest prediction probabilities, where K is
@@ -63,22 +66,26 @@ class LimeTimeSeriesExplainer(object):
             num_features: maximum number of features present in explanation
             num_samples: size of the neighborhood to learn the linear model
             distance_metric: the distance metric to use for sample weighting,
-            defaults to cosine similarity
+                defaults to cosine similarity
             model_regressor: sklearn regressor to use in explanation. Defaults
-            to Ridge regression in LimeBase. Must have model_regressor.coef_
-            and 'sample_weight' as a parameter to model_regressor.fit()
+                to Ridge regression in LimeBase. Must have
+                model_regressor.coef_ and 'sample_weight' as a parameter to
+                model_regressor.fit()
         Returns:
             An Explanation object (see explanation.py) with the corresponding
             explanations.
        """
 
         domain_mapper = explanation.DomainMapper()
-        permutations, predictions, distances = self.__data_labels_distances(timeseries_instance, classifier_fn, num_samples, num_slices, replacement_method)
+        permutations, predictions, distances = self.__data_labels_distances(
+            timeseries_instance, classifier_fn,
+            num_samples, num_slices, replacement_method)
 
         if self.class_names is None:
             self.class_names = [str(x) for x in range(predictions[0].shape[0])]
 
-        ret_exp = explanation.Explanation(domain_mapper=domain_mapper, class_names=self.class_names)
+        ret_exp = explanation.Explanation(domain_mapper=domain_mapper,
+                                          class_names=self.class_names)
         ret_exp.predict_proba = predictions[0]
 
         if top_labels:
@@ -88,10 +95,13 @@ class LimeTimeSeriesExplainer(object):
         for label in labels:
             (ret_exp.intercept[int(label)],
              ret_exp.local_exp[int(label)],
-             ret_exp.score, ret_exp.local_pred) = self.base.explain_instance_with_data(permutations, predictions, distances, label,
-                                                                                       num_features,
-                                                                                       model_regressor=model_regressor,
-                                                                                       feature_selection=self.feature_selection)
+             ret_exp.score,
+             ret_exp.local_pred) = self.base.explain_instance_with_data(
+                permutations, predictions,
+                distances, label,
+                num_features,
+                model_regressor=model_regressor,
+                feature_selection=self.feature_selection)
         return ret_exp
 
     def __data_labels_distances(cls,
@@ -102,18 +112,22 @@ class LimeTimeSeriesExplainer(object):
                                 replacement_method='mean'):
         """Generates a neighborhood around a prediction.
 
-        Generates neighborhood data by randomly removing slices from the time series
-        and replacing them with other data points (specified by replacement_method: mean
-        over slice range, mean of entire series or random noise). Then predicts with the classifier.
+        Generates neighborhood data by randomly removing slices from the
+        time series and replacing them with other data points (specified by
+        replacement_method: mean over slice range, mean of entire series or
+        random noise). Then predicts with the classifier.
 
         Args:
             timeseries: Time Series to be explained.
             classifier_fn: classifier prediction probability function, which
                 takes a time series and outputs prediction probabilities. For
                 ScikitClassifier, this is classifier.predict_proba.
-            num_samples: size of the neighborhood to learn the linear model (perturbation + original time series)
-            num_slices: how many slices the time series will be split into for discretization.
-            replacement_method: Defines how individual slice will be deactivated (can be 'mean', 'total_mean', 'noise')
+            num_samples: size of the neighborhood to learn the linear
+                model (perturbation + original time series)
+            num_slices: how many slices the time series will be split into
+                for discretization.
+            replacement_method:  Defines how individual slice will be
+                deactivated (can be 'mean', 'total_mean', 'noise')
         Returns:
             A tuple (data, labels, distances), where:
                 data: dense num_samples * K binary matrix, where K is the
@@ -137,7 +151,8 @@ class LimeTimeSeriesExplainer(object):
 
         for i, num_inactive in enumerate(deact_per_slice, start=1):
             # choose random slices indexes to deactivate
-            inactive_idxs = np.random.choice(features_range, num_inactive, replace=False)
+            inactive_idxs = np.random.choice(features_range, num_inactive,
+                                             replace=False)
             perturbation_matrix[i, inactive_idxs] = 0
             tmp_series = timeseries.copy()
 
@@ -148,13 +163,14 @@ class LimeTimeSeriesExplainer(object):
 
                 if replacement_method == 'mean':
                     # use mean of slice as inactive
-                    tmp_series[start_idx:end_idx] = np.mean(tmp_series[start_idx:end_idx])
+                    tmp_series[start_idx:end_idx] = np.mean(
+                        tmp_series[start_idx:end_idx])
                 elif replacement_method == 'noise':
                     # use random noise as inactive
                     tmp_series[start_idx:end_idx] = np.random.uniform(
-                                                        tmp_series.min(),
-                                                        tmp_series.max(),
-                                                        end_idx - start_idx)
+                        tmp_series.min(),
+                        tmp_series.max(),
+                        end_idx - start_idx)
                 elif replacement_method == 'total_mean':
                     # use total series mean as inactive
                     tmp_series[start_idx:end_idx] = tmp_series.mean()

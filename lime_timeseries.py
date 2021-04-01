@@ -211,7 +211,6 @@ class LimeTimeSeriesExplainer(object):
 
                 if replacement_method == 'mean':
                     # use mean of slice as inactive
-                    import pdb;pdb.set_trace()
                     perturb_mean(tmp_series, start_idx, end_idx,
                                  channels_to_perturb)
                 elif replacement_method == 'noise':

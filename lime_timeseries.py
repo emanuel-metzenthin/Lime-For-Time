@@ -3,7 +3,33 @@ import sklearn
 from lime import explanation
 from lime import lime_base
 import math
+import logging
 
+class MultiTSDomainMapper(explanation.DomainMapper):
+    def __init__(self, signal_names, num_slices, is_multivariate):
+        """Init function.
+        Args:
+            signal_names: list of strings, names of signals
+        """
+        self.num_slices = num_slices
+        self.signal_names = signal_names
+        self.is_multivariate = is_multivariate
+        
+    def map_exp_ids(self, exp, **kwargs):
+        # in case of univariate, don't change feature ids
+        if not self.is_multivariate:
+            return exp
+        
+        names = []
+        for _id, weight in exp:
+            # from feature idx, extract both the pair number of slice
+            # and the signal perturbed
+            nsignal = int(_id / self.num_slices)
+            nslice = _id % self.num_slices
+            signalname = self.signal_names[nsignal]
+            featurename = "%d - %s" % (nslice, signalname)
+            names.append((featurename, weight))
+        return names
 
 class LimeTimeSeriesExplainer(object):
     """Explains time series classifiers."""
@@ -13,6 +39,7 @@ class LimeTimeSeriesExplainer(object):
                  verbose=False,
                  class_names=None,
                  feature_selection='auto',
+                 signal_names=["not specified"]
                  ):
         """Init function.
         Args:
@@ -23,6 +50,7 @@ class LimeTimeSeriesExplainer(object):
                 '1', ...
             feature_selection: feature selection method. can be
                 'forward_selection', 'lasso_path', 'none' or 'auto'.
+            signal_names: list of strings, names of signals
         """
 
         # exponential kernel
@@ -31,6 +59,7 @@ class LimeTimeSeriesExplainer(object):
         self.base = lime_base.LimeBase(kernel, verbose)
         self.class_names = class_names
         self.feature_selection = feature_selection
+        self.signal_names = signal_names
 
     def explain_instance(self,
                          timeseries_instance,
@@ -76,14 +105,16 @@ class LimeTimeSeriesExplainer(object):
             explanations.
        """
 
-        domain_mapper = explanation.DomainMapper()
         permutations, predictions, distances = self.__data_labels_distances(
             timeseries_instance, classifier_fn,
             num_samples, num_slices, replacement_method)
 
+        is_multivariate = len(timeseries_instance.shape) > 1
+        
         if self.class_names is None:
             self.class_names = [str(x) for x in range(predictions[0].shape[0])]
 
+        domain_mapper = MultiTSDomainMapper(self.signal_names, num_slices, is_multivariate)
         ret_exp = explanation.Explanation(domain_mapper=domain_mapper,
                                           class_names=self.class_names)
         ret_exp.predict_proba = predictions[0]
@@ -119,6 +150,8 @@ class LimeTimeSeriesExplainer(object):
 
         Args:
             timeseries: Time Series to be explained.
+                it can be a flat array (univariate)
+                or (num_signals, num_points) (multivariate)
             classifier_fn: classifier prediction probability function, which
                 takes a time series and outputs prediction probabilities. For
                 ScikitClassifier, this is classifier.predict_proba.
@@ -143,40 +176,89 @@ class LimeTimeSeriesExplainer(object):
             return sklearn.metrics.pairwise.pairwise_distances(
                 x, x[0].reshape([1, -1]), metric='cosine').ravel() * 100
 
-        values_per_slice = math.ceil(len(timeseries) / num_slices)
+        num_channels = 1
+        len_ts = len(timeseries)
+        if len(timeseries.shape) > 1:  # multivariate
+            num_channels, len_ts = timeseries.shape
+        
+        values_per_slice = math.ceil(len_ts / num_slices)
         deact_per_slice = np.random.randint(1, num_slices + 1, num_samples - 1)
-        perturbation_matrix = np.ones((num_samples, num_slices))
+        perturbation_matrix = np.ones((num_samples, num_channels, num_slices))
         features_range = range(num_slices)
         original_data = [timeseries.copy()]
 
         for i, num_inactive in enumerate(deact_per_slice, start=1):
+            logging.info("sample %d, inactivating %d", i, num_inactive)
             # choose random slices indexes to deactivate
             inactive_idxs = np.random.choice(features_range, num_inactive,
                                              replace=False)
-            perturbation_matrix[i, inactive_idxs] = 0
+            num_channels_to_perturb = np.random.randint(1, num_channels+1)
+            tmp_channels = list(range(num_channels))
+            np.random.shuffle(tmp_channels)
+            channels_to_perturb = tmp_channels[:num_channels_to_perturb]
+            logging.info("sample %d, perturbing signals %r", i,
+                         channels_to_perturb)
+            
+            for chan in channels_to_perturb:
+                perturbation_matrix[i, chan, inactive_idxs] = 0
+                
             tmp_series = timeseries.copy()
 
             for idx in inactive_idxs:
                 start_idx = idx * values_per_slice
                 end_idx = start_idx + values_per_slice
-                end_idx = min(end_idx, len(timeseries))
+                end_idx = min(end_idx, len_ts)
 
                 if replacement_method == 'mean':
                     # use mean of slice as inactive
-                    tmp_series[start_idx:end_idx] = np.mean(
-                        tmp_series[start_idx:end_idx])
+                    import pdb;pdb.set_trace()
+                    perturb_mean(tmp_series, start_idx, end_idx,
+                                 channels_to_perturb)
                 elif replacement_method == 'noise':
                     # use random noise as inactive
-                    tmp_series[start_idx:end_idx] = np.random.uniform(
-                        tmp_series.min(),
-                        tmp_series.max(),
-                        end_idx - start_idx)
+                    perturb_noise(tmp_series, start_idx, end_idx,
+                                  channels_to_perturb)
                 elif replacement_method == 'total_mean':
                     # use total series mean as inactive
-                    tmp_series[start_idx:end_idx] = tmp_series.mean()
+                    perturb_total_mean(tmp_series, start_idx, end_idx,
+                                       channels_to_perturb)
             original_data.append(tmp_series)
 
-        predictions = classifier_fn(original_data)
+        predictions = classifier_fn(np.array(original_data))
+        
+        # create a flat representation for features
+        perturbation_matrix = perturbation_matrix.reshape((num_samples, num_channels * num_slices))
         distances = distance_fn(perturbation_matrix)
 
         return perturbation_matrix, predictions, distances
+
+def perturb_total_mean(m, start_idx, end_idx, channels):
+    # univariate
+    if len(m.shape) == 1:
+        m[start_idx:end_idx] = m.mean()
+        return
+    
+    for chan in channels:
+        m[chan][start_idx:end_idx] = m[chan].mean()
+
+def perturb_mean(m, start_idx, end_idx, channels):
+    # univariate
+    if len(m.shape) == 1:
+        m[start_idx:end_idx] = np.mean(m[start_idx:end_idx])
+        return
+    
+    for chan in channels:
+        m[chan][start_idx:end_idx] = np.mean(m[chan][start_idx:end_idx])
+        
+def perturb_noise(m, start_idx, end_idx, channels):
+    # univariate
+    if len(m.shape) == 1:
+        m[start_idx:end_idx] = np.random.uniform(m.min(), m.max(),
+                                                 end_idx - start_idx)
+        return
+
+    for chan in channels:
+        m[chan][start_idx:end_idx] = np.random.uniform(m[chan].min(),
+                                                       m[chan].max(),
+                                                       end_idx - start_idx)
+        

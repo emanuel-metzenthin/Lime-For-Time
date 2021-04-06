@@ -182,12 +182,12 @@ class LimeTimeSeriesExplainer(object):
             num_channels, len_ts = timeseries.shape
         
         values_per_slice = math.ceil(len_ts / num_slices)
-        deact_per_slice = np.random.randint(1, num_slices + 1, num_samples - 1)
+        deact_per_sample = np.random.randint(1, num_slices + 1, num_samples - 1)
         perturbation_matrix = np.ones((num_samples, num_channels, num_slices))
         features_range = range(num_slices)
         original_data = [timeseries.copy()]
 
-        for i, num_inactive in enumerate(deact_per_slice, start=1):
+        for i, num_inactive in enumerate(deact_per_sample, start=1):
             logging.info("sample %d, inactivating %d", i, num_inactive)
             # choose random slices indexes to deactivate
             inactive_idxs = np.random.choice(features_range, num_inactive,

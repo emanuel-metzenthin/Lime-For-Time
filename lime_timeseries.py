@@ -5,7 +5,7 @@ from lime import lime_base
 import math
 import logging
 
-class MultiTSDomainMapper(explanation.DomainMapper):
+class TSDomainMapper(explanation.DomainMapper):
     def __init__(self, signal_names, num_slices, is_multivariate):
         """Init function.
         Args:
@@ -114,7 +114,7 @@ class LimeTimeSeriesExplainer(object):
         if self.class_names is None:
             self.class_names = [str(x) for x in range(predictions[0].shape[0])]
 
-        domain_mapper = MultiTSDomainMapper(self.signal_names, num_slices, is_multivariate)
+        domain_mapper = TSDomainMapper(self.signal_names, num_slices, is_multivariate)
         ret_exp = explanation.Explanation(domain_mapper=domain_mapper,
                                           class_names=self.class_names)
         ret_exp.predict_proba = predictions[0]

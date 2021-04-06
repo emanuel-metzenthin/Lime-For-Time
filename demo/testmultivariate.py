@@ -15,6 +15,9 @@ import lime_timeseries as lime_ts
 
 # random dataset
 def genDataset(num_samples, num_channels, num_points):
+    # Set initial random seed, to avoid non-deterministic test
+    np.random.seed(1)
+    
     X = np.random.random((num_samples, num_channels, num_points))
     y = np.array([np.random.randint(0,2) for _ in range(num_samples)])
     signal_names = ["chan_%d" % x for x in range(num_channels)]

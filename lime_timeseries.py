@@ -193,9 +193,11 @@ class LimeTimeSeriesExplainer(object):
             inactive_idxs = np.random.choice(features_range, num_inactive,
                                              replace=False)
             num_channels_to_perturb = np.random.randint(1, num_channels+1)
-            tmp_channels = list(range(num_channels))
-            np.random.shuffle(tmp_channels)
-            channels_to_perturb = tmp_channels[:num_channels_to_perturb]
+
+            channels_to_perturb = np.random.choice(range(num_channels),
+                                                   num_channels_to_perturb,
+                                                   replace=False)
+            
             logging.info("sample %d, perturbing signals %r", i,
                          channels_to_perturb)
             
